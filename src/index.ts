@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import dotenv from 'dotenv';
 import { query } from './db.js';
+import { identifyContact } from './controllers/identityController.js';
 
 dotenv.config();
 
@@ -21,6 +22,8 @@ app.get('/health', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Database connection failed' });
   }
 });
+
+app.post('/identify', identifyContact);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
