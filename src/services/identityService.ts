@@ -115,16 +115,19 @@ export class IdentityService {
     }
 
     /**
-     * Check if a contact with given email or phone already exists
+     * Check if the exact (email, phone) pair already exists on a single contact.
+     * A null field in the request matches a null field on the contact.
      */
     private contactExists(
         contacts: Contact[],
         email: string | null,
         phoneNumber: string | null
     ): boolean {
-        return contacts.some(c =>
-            (email && c.email === email) || (phoneNumber && c.phoneNumber === phoneNumber)
-        );
+        return contacts.some(c => {
+            const emailMatch = email ? c.email === email : !c.email;
+            const phoneMatch = phoneNumber ? c.phoneNumber === phoneNumber : !c.phoneNumber;
+            return emailMatch && phoneMatch;
+        });
     }
 
     /**
