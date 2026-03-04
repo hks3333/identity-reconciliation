@@ -5,3 +5,7 @@ analysis.md.resolved
 expected_output.md
 requirements.md
 test_identify.sh
+
+.env.local
+*.log
+.DS_Store
