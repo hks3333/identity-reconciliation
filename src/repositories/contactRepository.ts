@@ -86,14 +86,29 @@ export class ContactRepository {
         return result.rows;
     }
 
-    async updateLinkedId(contactId: number, linkedId: number): Promise<Contact> {
+    /**
+     * Demotes a primary contact to secondary, linking it to a new primary.
+     */
+    async convertToSecondary(contactId: number, newPrimaryId: number): Promise<Contact> {
         const result = await query(
             `UPDATE "Contact" 
-       SET "linkedId" = $1, "updatedAt" = NOW()
+       SET "linkedId" = $1, "linkPrecedence" = 'secondary', "updatedAt" = NOW()
        WHERE id = $2
        RETURNING *`,
-            [linkedId, contactId]
+            [newPrimaryId, contactId]
         );
         return result.rows[0];
+    }
+
+    /**
+     * Re-links all secondaries that point to oldPrimaryId so they point to newPrimaryId instead.
+     */
+    async reassignSecondaries(oldPrimaryId: number, newPrimaryId: number): Promise<void> {
+        await query(
+            `UPDATE "Contact" 
+       SET "linkedId" = $1, "updatedAt" = NOW()
+       WHERE "linkedId" = $2 AND "deletedAt" IS NULL`,
+            [newPrimaryId, oldPrimaryId]
+        );
     }
 }

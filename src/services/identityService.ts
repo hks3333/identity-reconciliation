@@ -14,10 +14,14 @@ export class IdentityService {
         this.contactRepository = contactRepository;
     }
 
+    /**
+     * Main method to identify and reconcile contacts
+     */
     async reconcile(
         email: string | null,
         phoneNumber: string | null
     ): Promise<ConsolidatedContact> {
+        // Validate input
         if (!email && !phoneNumber) {
             throw new Error('Email or phoneNumber is required');
         }
@@ -45,11 +49,14 @@ export class IdentityService {
         }
 
         // Fetch all contacts in the merged group
-        const allContacts = await this.contactRepository.getContactsByIds(
+        let allContacts = await this.contactRepository.getContactsByIds(
             Array.from(allLinkedIds)
         );
 
-        // Find primary (oldest contact)
+        // Merge separate primaries if the request bridges two groups
+        allContacts = await this.mergePrimaries(allContacts);
+
+        // Find the single true primary (oldest contact)
         const primaryContact = this.findPrimaryContact(allContacts);
 
         // Check if this is a new contact (not already in our group)
@@ -57,23 +64,13 @@ export class IdentityService {
 
         if (isNewContact) {
             // Create secondary contact linked to primary
-            await this.contactRepository.createSecondary(
+            const newContact = await this.contactRepository.createSecondary(
                 email,
                 phoneNumber,
                 primaryContact.id
             );
 
-            // Add the new contact to our list
-            const newContact: Contact = {
-                id: 0, // Placeholder, will be overwritten
-                email,
-                phoneNumber,
-                linkedId: primaryContact.id,
-                linkPrecedence: 'secondary',
-                createdAt: new Date(),
-                updatedAt: new Date(),
-                deletedAt: null
-            };
+            // Add the newly created contact to our list
             allContacts.push(newContact);
         }
 
@@ -89,6 +86,32 @@ export class IdentityService {
                 ? oldest
                 : current
         );
+    }
+
+    /**
+     * If the contact group contains multiple primaries, demote all but the oldest.
+     * Re-links their secondaries to the true primary.
+     */
+    private async mergePrimaries(contacts: Contact[]): Promise<Contact[]> {
+        const primaries = contacts
+            .filter(c => c.linkPrecedence === 'primary')
+            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        if (primaries.length <= 1) return contacts;
+
+        const truePrimary = primaries[0]!;
+        const demotedPrimaries = primaries.slice(1);
+
+        for (const demoted of demotedPrimaries) {
+            // Re-link all secondaries that pointed to the demoted primary
+            await this.contactRepository.reassignSecondaries(demoted.id, truePrimary.id);
+            // Demote the primary itself
+            await this.contactRepository.convertToSecondary(demoted.id, truePrimary.id);
+        }
+
+        // Re-fetch to get the updated state
+        const allIds = contacts.map(c => c.id);
+        return this.contactRepository.getContactsByIds(allIds);
     }
 
     /**
