@@ -41,16 +41,20 @@ export class IdentityService {
             return this.buildConsolidatedContact([newContact]);
         }
 
-        // Case 2: Contacts exist - get entire linked chain
-        const allLinkedIds = new Set<number>();
-        for (const contact of matchedContacts) {
-            const chain = await this.contactRepository.getContactChain(contact.id);
-            chain.forEach(c => allLinkedIds.add(c.id));
+        // Resolve to primary IDs (walk up via linkedId)
+        const primaryIds = new Set<number>();
+        for (const c of matchedContacts) {
+            if (c.linkPrecedence === 'primary') {
+                primaryIds.add(c.id);
+            }
+            if (c.linkedId) {
+                primaryIds.add(c.linkedId);
+            }
         }
 
-        // Fetch all contacts in the merged group
-        let allContacts = await this.contactRepository.getContactsByIds(
-            Array.from(allLinkedIds)
+        // Fetch the full cluster in one query
+        let allContacts = await this.contactRepository.getContactCluster(
+            Array.from(primaryIds)
         );
 
         // Merge separate primaries if the request bridges two groups
@@ -59,18 +63,19 @@ export class IdentityService {
         // Find the single true primary (oldest contact)
         const primaryContact = this.findPrimaryContact(allContacts);
 
-        // Check if this is a new contact (not already in our group)
-        const isNewContact = !this.contactExists(allContacts, email, phoneNumber);
+        // Check if the request brings genuinely new information to the cluster
+        const clusterEmails = new Set(allContacts.map(c => c.email).filter(Boolean));
+        const clusterPhones = new Set(allContacts.map(c => c.phoneNumber).filter(Boolean));
 
-        if (isNewContact) {
-            // Create secondary contact linked to primary
+        const isNewEmail = email && !clusterEmails.has(email);
+        const isNewPhone = phoneNumber && !clusterPhones.has(phoneNumber);
+
+        if (isNewEmail || isNewPhone) {
             const newContact = await this.contactRepository.createSecondary(
                 email,
                 phoneNumber,
                 primaryContact.id
             );
-
-            // Add the newly created contact to our list
             allContacts.push(newContact);
         }
 
@@ -103,31 +108,12 @@ export class IdentityService {
         const demotedPrimaries = primaries.slice(1);
 
         for (const demoted of demotedPrimaries) {
-            // Re-link all secondaries that pointed to the demoted primary
             await this.contactRepository.reassignSecondaries(demoted.id, truePrimary.id);
-            // Demote the primary itself
             await this.contactRepository.convertToSecondary(demoted.id, truePrimary.id);
         }
 
-        // Re-fetch to get the updated state
-        const allIds = contacts.map(c => c.id);
-        return this.contactRepository.getContactsByIds(allIds);
-    }
-
-    /**
-     * Check if the exact (email, phone) pair already exists on a single contact.
-     * A null field in the request matches a null field on the contact.
-     */
-    private contactExists(
-        contacts: Contact[],
-        email: string | null,
-        phoneNumber: string | null
-    ): boolean {
-        return contacts.some(c => {
-            const emailMatch = email ? c.email === email : !c.email;
-            const phoneMatch = phoneNumber ? c.phoneNumber === phoneNumber : !c.phoneNumber;
-            return emailMatch && phoneMatch;
-        });
+        // Re-fetch via cluster to get updated state
+        return this.contactRepository.getContactCluster([truePrimary.id]);
     }
 
     /**
@@ -142,10 +128,7 @@ export class IdentityService {
         const secondaryIds: number[] = [];
 
         // Determine primary if not provided
-        let primary = primaryId;
-        if (!primary) {
-            primary = this.findPrimaryContact(contacts).id;
-        }
+        const primary = primaryId ?? this.findPrimaryContact(contacts).id;
 
         // Collect all unique emails and phones
         contacts.forEach(contact => {

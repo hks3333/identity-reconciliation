@@ -55,21 +55,18 @@ export class ContactRepository {
         return result.rows[0];
     }
 
-    async getContactChain(contactId: number): Promise<Contact[]> {
+    /**
+     * Fetches the full contact cluster for a set of primary IDs.
+     * Returns all contacts where id OR linkedId matches any of the given primary IDs.
+     */
+    async getContactCluster(primaryIds: number[]): Promise<Contact[]> {
+        if (primaryIds.length === 0) return [];
+
         const result = await query(
-            `WITH RECURSIVE contact_chain AS (
-        SELECT * FROM "Contact" 
-        WHERE id = $1 AND "deletedAt" IS NULL
-        
-        UNION ALL
-        
-        SELECT c.* FROM "Contact" c
-        INNER JOIN contact_chain cc ON c."linkedId" = cc.id
-        WHERE c."deletedAt" IS NULL
-      )
-      SELECT * FROM contact_chain
-      ORDER BY "createdAt" ASC`,
-            [contactId]
+            `SELECT * FROM "Contact" 
+       WHERE (id = ANY($1) OR "linkedId" = ANY($1)) AND "deletedAt" IS NULL
+       ORDER BY "createdAt" ASC`,
+            [primaryIds]
         );
         return result.rows;
     }
