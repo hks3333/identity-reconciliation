@@ -38,6 +38,10 @@ export class IdentityService {
                 email,
                 phoneNumber
             );
+            if (!newContact) {
+                // Race condition: another request created it first. Retry.
+                return this.reconcile(email, phoneNumber);
+            }
             return this.buildConsolidatedContact([newContact]);
         }
 
@@ -76,7 +80,10 @@ export class IdentityService {
                 phoneNumber,
                 primaryContact.id
             );
-            allContacts.push(newContact);
+            if (newContact) {
+                allContacts.push(newContact);
+            }
+            // If null (duplicate), skip — data already exists
         }
 
         return this.buildConsolidatedContact(allContacts, primaryContact.id);

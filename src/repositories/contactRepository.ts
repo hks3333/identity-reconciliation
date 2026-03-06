@@ -31,28 +31,42 @@ export class ContactRepository {
     async createPrimary(
         email: string | null,
         phoneNumber: string | null
-    ): Promise<Contact> {
-        const result = await query(
-            `INSERT INTO "Contact" (email, "phoneNumber", "linkPrecedence")
+    ): Promise<Contact | null> {
+        try {
+            const result = await query(
+                `INSERT INTO "Contact" (email, "phoneNumber", "linkPrecedence")
        VALUES ($1, $2, 'primary')
        RETURNING *`,
-            [email, phoneNumber]
-        );
-        return result.rows[0];
+                [email, phoneNumber]
+            );
+            return result.rows[0];
+        } catch (error: unknown) {
+            if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
+                return null; // Duplicate — another request already inserted this
+            }
+            throw error;
+        }
     }
 
     async createSecondary(
         email: string | null,
         phoneNumber: string | null,
         linkedId: number
-    ): Promise<Contact> {
-        const result = await query(
-            `INSERT INTO "Contact" (email, "phoneNumber", "linkedId", "linkPrecedence")
+    ): Promise<Contact | null> {
+        try {
+            const result = await query(
+                `INSERT INTO "Contact" (email, "phoneNumber", "linkedId", "linkPrecedence")
        VALUES ($1, $2, $3, 'secondary')
        RETURNING *`,
-            [email, phoneNumber, linkedId]
-        );
-        return result.rows[0];
+                [email, phoneNumber, linkedId]
+            );
+            return result.rows[0];
+        } catch (error: unknown) {
+            if (error instanceof Error && 'code' in error && (error as any).code === '23505') {
+                return null; // Duplicate — another request already inserted this
+            }
+            throw error;
+        }
     }
 
     /**
